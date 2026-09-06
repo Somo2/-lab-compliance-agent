@@ -22,7 +22,12 @@ class SearchSOPsTool:
     def __init__(self, retriever: Retriever) -> None:
         self.retriever = retriever
 
-    def run(self, query: str, top_k: int = 5) -> list[dict[str, Any]]:
+    def run(
+        self,
+        query: str,
+        top_k: int = 5,
+        revision: int | None = None,
+    ) -> list[dict[str, Any]]:
         """Return relevant SOP chunks as serialization-friendly dictionaries."""
         sop_match = re.search(r"SOP-\d+", query, re.IGNORECASE)
         retrieval_top_k = top_k
@@ -39,6 +44,13 @@ class SearchSOPsTool:
                 result
                 for result in results
                 if result.chunk.sop_id.upper() == requested_sop
+            ]
+
+        if revision is not None:
+            results = [
+                result
+                for result in results
+                if result.chunk.metadata.get("revision") == revision
             ]
 
         return [

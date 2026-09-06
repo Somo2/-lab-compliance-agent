@@ -109,6 +109,19 @@ class MockChatModel(ChatModel):
                     )
                 )
 
+        if (
+            "sop-201" in user_query
+            and "revision 3" in user_query
+            and "ph" in user_query
+            and "search_sops" in tool_names
+        ):
+            return AIMessage(
+                content=(
+                    "According to SOP-201 revision 3 §4.2, the acceptable "
+                    "pH range is 7.35–7.45."
+                )
+            )
+
         if "search_sops" in tool_names:
             validation_values = {
                 "7.52": ("mock_validate_1", 7.52),
@@ -139,6 +152,27 @@ class MockChatModel(ChatModel):
                     "According to SOP-201 §4.2, the acceptable pH range "
                     "is 7.35–7.45."
                 )
+            )
+
+        if (
+            "sop-201" in user_query
+            and "revision 3" in user_query
+            and "ph" in user_query
+        ):
+            return AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "search_sops",
+                        "args": {
+                            "query": "SOP-201 acceptable pH range",
+                            "top_k": 3,
+                            "revision": 3,
+                        },
+                        "id": "mock_search_sop201_revision3",
+                        "type": "tool_call",
+                    }
+                ],
             )
 
         if "sop-201" in user_query and "ph" in user_query:

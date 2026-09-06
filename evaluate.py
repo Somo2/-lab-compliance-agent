@@ -55,6 +55,10 @@ def run_case(name: str, query: str, expected: dict) -> bool:
         passed = passed and any(
             source.get("sop_id") == expected_source["sop_id"]
             and source.get("section") == expected_source["section"]
+            and all(
+                source.get(field) == value
+                for field, value in expected_source.items()
+            )
             for source in response.sources
         )
 
@@ -176,6 +180,20 @@ def main() -> None:
                 "source": {
                     "sop_id": "SOP-305",
                     "section": "3.2 Acceptance Criteria",
+                },
+            },
+        },
+        {
+            "name": "SOP revision-specific retrieval",
+            "query": "What is the acceptable pH range in SOP-201 revision 3?",
+            "expected": {
+                "answer_contains": ["revision 3", "7.35", "7.45"],
+                "tools": ["search_sops"],
+                "confidence": "MEDIUM",
+                "source": {
+                    "sop_id": "SOP-201",
+                    "section": "4.2 Acceptance Criteria",
+                    "revision": 3,
                 },
             },
         },
