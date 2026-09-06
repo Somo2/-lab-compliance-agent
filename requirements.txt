@@ -9,3 +9,4 @@ pytest
 chromadb
 sentence-transformers
 aiohttp>=3.10
+rank-bm25

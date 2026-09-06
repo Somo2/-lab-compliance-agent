@@ -44,7 +44,6 @@ class SearchSOPsTool:
                 "metadata": result.chunk.metadata,
             }
             for result in results
-            if result.score >= 0.45
         ]
 
 

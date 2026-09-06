@@ -7,7 +7,7 @@ An Agentic AI system for querying laboratory SOPs, validating experimental param
 The system acts as a laboratory compliance assistant that can:
 
 - Answer questions using laboratory Standard Operating Procedures (SOPs)
-- Retrieve relevant SOP sections using semantic search
+- Retrieve relevant SOP sections using hybrid semantic and lexical search
 - Validate numeric experimental readings against SOP-defined limits
 - Provide traceable sources for every answer
 - Record tool usage and audit events
@@ -35,22 +35,22 @@ The implementation is intentionally scoped to a small SOP corpus while keeping t
               +------------+------------+
               |                         |
               v                         v
-        search_sops              validate_parameter
+       search_sops              validate_parameter
               |                         |
               v                         v
-      Retrieval Service          Deterministic Python
-              |
-              v
-          Retriever
-              |
-              v
-        VectorStore
-              |
-              v
-       Chroma Vector DB
-              |
-              v
-          SOP Chunks
+      Hybrid Retriever          Deterministic Python
+         /        \                  Validation
+        /          \
+       v            v
+  Vector Search    BM25 Search
+     Chroma        Lexical
+        \            /
+         \          /
+          v        v
+       RRF Fusion
+            |
+            v
+       Ranked SOP Chunks
 ```
 
 ### LLM abstraction
@@ -98,8 +98,11 @@ lab-compliance-agent/
 │   │
 │   ├── retrieval/
 │   │   ├── base.py
+│   │   ├── bm25_retriever.py
 │   │   ├── chunker.py
 │   │   ├── chroma_store.py
+│   │   ├── hybrid_retriever.py
+│   │   ├── sop_loader.py
 │   │   ├── service.py
 │   │   └── vector_store.py
 │   │
@@ -130,34 +133,118 @@ lab-compliance-agent/
 
 ## 4. Retrieval Design
 
-The system uses a retrieval abstraction:
+The system uses a hybrid retrieval strategy combining semantic vector search with lexical BM25 search.
 
+```text
+                         Query
+                           |
+                +----------+----------+
+                |                     |
+                v                     v
+         Vector Retrieval          BM25 Retrieval
+             Chroma                  Lexical
+                |                     |
+                +----------+----------+
+                           |
+                           v
+                Reciprocal Rank Fusion
+                           |
+                           v
+                    Ranked Results
 ```
-Retriever
-   |
-   +-- RetrievalService
-           |
-           v
-      VectorStore
-           |
-           +-- ChromaVectorStore
+
+### Semantic retrieval
+
+Chroma is used for semantic vector retrieval.
+
+This allows queries with different wording to retrieve SOP sections that express the same concept.
+
+### Lexical retrieval
+
+BM25 provides lexical matching over the SOP chunks.
+
+This is particularly useful for technical laboratory documents where exact terms can be important, such as:
+
+- SOP IDs
+- Parameter names
+- Numeric requirements
+- Section names
+- Technical terminology
+
+### Hybrid fusion
+
+The results from both retrievers are combined using Reciprocal Rank Fusion (RRF).
+
+RRF is used instead of directly adding vector and BM25 scores because the two retrieval methods produce scores on different scales.
+
+The fused ranking rewards documents that appear highly in both retrieval systems.
+
+### SOP-ID filtering
+
+When a query explicitly identifies an SOP, deterministic SOP-ID filtering is applied after retrieval.
+
+For example:
+
+```text
+"What is the pH range in SOP-201?"
 ```
 
-This separates the agent from the underlying vector database.
+is restricted to chunks belonging to `SOP-201`.
 
-The agent therefore does not directly depend on Chroma.
+This prevents semantically similar content from unrelated SOPs from being returned.
+
+### Retrieval abstraction
+
+The retrieval layer is intentionally separated from the agent:
+
+```text
+ComplianceAgent
+       |
+       v
+  search_sops
+       |
+       v
+    Retriever
+       |
+       v
+HybridRetriever
+   /       \
+  v         v
+Chroma     BM25
+```
+
+The agent does not directly depend on Chroma or BM25.
+
+The `Retriever` abstraction allows the retrieval implementation to be replaced without rewriting the agent.
+
+For example, a future implementation could replace the current hybrid backend with a managed search platform or another vector/lexical retrieval system.
+
+### Why hybrid retrieval?
+
+The SOP corpus contains both semantic concepts and exact technical terminology.
+
+Vector search is useful for semantic similarity, while BM25 is useful for exact lexical matching.
+
+Combining the two provides a more robust retrieval strategy than relying on either approach alone.
 
 ### Why Chroma?
 
-The assessment contains a small SOP corpus, so a local persistent vector database provides a good balance between:
+Chroma was selected as the semantic vector store because the assessment contains a small SOP corpus.
 
-- Simple setup
+It provides:
+
 - Semantic retrieval
-- Persistence
+- Local persistence
+- Simple setup
 - Low operational overhead
-- Fast implementation within the assessment scope
 
-For a larger production system, the `VectorStore` abstraction could be implemented using another vector database without changing the agent or tool interface.
+The vector database is hidden behind the `VectorStore` abstraction, so it can be replaced without changing the agent.
+
+### Production trade-off
+
+For the current assessment, BM25 is built in memory when the application starts.
+
+For a production deployment, the lexical index would typically be persisted or managed by the retrieval infrastructure rather than rebuilt during every application startup.
 
 ### Metadata-aware retrieval
 
@@ -450,7 +537,8 @@ Then configure the desired LLM provider.
 python ingest.py
 ```
 
-This creates the local persistent Chroma index.
+This creates the local persistent Chroma index. The application also loads the
+same SOP chunks at startup to build the in-memory BM25 index.
 
 ### Start the API
 
@@ -551,7 +639,9 @@ Production deployments should also include:
 
 Chroma is appropriate for the assessment's small corpus.
 
-At larger scale, the same `Retriever` and `VectorStore` interfaces could support a managed vector database or hybrid search backend.
+At larger scale, the same `Retriever` and `VectorStore` interfaces could
+support a managed vector database or a separately persisted hybrid search
+backend.
 
 ---
 
@@ -591,9 +681,10 @@ This also allows additional compliance tools to be added later without rewriting
 
 ### Why abstract retrieval?
 
-The application should not be coupled to a particular vector database.
+The application should not be coupled to a particular retrieval backend.
 
-The current implementation can replace Chroma with another backend while preserving the agent and tool interfaces.
+The current implementation can replace either Chroma or BM25 while preserving
+the agent and tool interfaces.
 
 ---
 
@@ -604,6 +695,7 @@ Implemented:
 - SOP ingestion
 - Markdown chunking
 - Persistent vector retrieval
+- Hybrid retrieval with BM25 and Reciprocal Rank Fusion
 - Metadata-aware retrieval
 - SOP-ID filtering
 - Compliance validation
@@ -628,4 +720,3 @@ Future extensions can include:
 - Tenant isolation
 - Additional laboratory agents
 - Streaming responses
-
