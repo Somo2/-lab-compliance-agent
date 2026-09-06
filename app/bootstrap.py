@@ -1,0 +1,27 @@
+from app.agent.compliance_agent import ComplianceAgent
+from app.agent.orchestrator import AgentOrchestrator
+from app.llm.factory import create_chat_model
+from app.retrieval.chroma_store import ChromaVectorStore
+from app.retrieval.service import RetrievalService
+from app.tools.search_sops import create_search_sops_tool
+from app.tools.validate_parameter import validate_parameter
+
+
+def create_orchestrator() -> AgentOrchestrator:
+    vector_store = ChromaVectorStore()
+    retriever = RetrievalService(vector_store)
+    search_sops = create_search_sops_tool(retriever)
+    model = create_chat_model()
+
+    compliance_agent = ComplianceAgent(
+        model=model,
+        tools=[
+            search_sops,
+            validate_parameter,
+        ],
+    )
+
+    orchestrator = AgentOrchestrator()
+    orchestrator.register_agent("compliance", compliance_agent)
+
+    return orchestrator

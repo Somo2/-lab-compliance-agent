@@ -1,0 +1,11 @@
+fastapi
+uvicorn
+pydantic
+langgraph
+langchain-core
+langchain-openai
+python-dotenv
+pytest
+chromadb
+sentence-transformers
+aiohttp>=3.10
