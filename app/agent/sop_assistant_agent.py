@@ -131,7 +131,11 @@ class SOPAssistantAgent:
             "audit_trace": audit_trace,
         }
 
-    def run(self, query: str) -> AgentResponse:
+    def run(
+        self,
+        query: str,
+        request_id: str | None = None,
+    ) -> AgentResponse:
         initial_state: AgentState = {
             "messages": [HumanMessage(content=query)],
             "tool_calls": [],

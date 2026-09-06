@@ -25,6 +25,14 @@ class AgentOrchestrator:
         except KeyError as exc:
             raise ValueError(f"Unknown agent: {name}") from exc
 
-    def run(self, agent_name: str, query: str) -> AgentResponse:
+    def run(
+        self,
+        agent_name: str,
+        query: str,
+        request_id: str | None = None,
+    ) -> AgentResponse:
         """Execute a query with the selected agent."""
-        return self.get_agent(agent_name).run(query)
+        return self.get_agent(agent_name).run(
+            query=query,
+            request_id=request_id,
+        )

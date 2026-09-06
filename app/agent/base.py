@@ -9,6 +9,10 @@ class Agent(ABC):
     """Base interface for all platform agents."""
 
     @abstractmethod
-    def run(self, query: str) -> AgentResponse:
+    def run(
+        self,
+        query: str,
+        request_id: str | None = None,
+    ) -> AgentResponse:
         """Execute the agent against a user query."""
         raise NotImplementedError

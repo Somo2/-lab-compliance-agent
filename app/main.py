@@ -1,10 +1,12 @@
 from dataclasses import asdict
+import uuid
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 
 from app.api.schemas import AgentQueryRequest, QueryRequest, QueryResponse
 from app.api.sops import router as sops_router
 from app.bootstrap import create_orchestrator
+from app.observability.logging import configure_logging, log_event
 from app.utils.normalization import normalize_query
 
 app = FastAPI(
@@ -12,6 +14,8 @@ app = FastAPI(
     description="Agentic AI system for laboratory SOP compliance.",
     version="1.0.0",
 )
+
+configure_logging()
 
 app.include_router(sops_router)
 
@@ -55,15 +59,51 @@ def _query_response(agent_name: str, query: str) -> QueryResponse:
 
 
 @app.post("/query", response_model=QueryResponse)
-def query(request: QueryRequest) -> QueryResponse:
+def query(
+    request: QueryRequest,
+    http_request: Request,
+) -> QueryResponse:
+    request_id = str(uuid.uuid4())
+
+    log_event(
+        "api.request.started",
+        request_id=request_id,
+        endpoint="/query",
+        method="POST",
+        agent=request.agent,
+    )
+
     try:
         normalized_query = normalize_query(request.query)
         response = orchestrator.run(
             agent_name=request.agent,
             query=normalized_query,
+            request_id=request_id,
         )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        log_event(
+            "api.request.failed",
+            request_id=request_id,
+            endpoint="/query",
+            method="POST",
+            agent=request.agent,
+            error_type=type(exc).__name__,
+            error=str(exc),
+        )
+
+        if isinstance(exc, ValueError):
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        raise
+
+    log_event(
+        "api.request.completed",
+        request_id=request_id,
+        endpoint="/query",
+        method="POST",
+        agent=request.agent,
+        confidence=response.confidence,
+    )
 
     return QueryResponse(
         answer=response.answer,

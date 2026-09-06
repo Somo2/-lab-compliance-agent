@@ -1,3 +1,4 @@
+import time
 from typing import Any
 
 from langchain_core.messages import HumanMessage, ToolMessage
@@ -8,6 +9,11 @@ from app.agent.base import Agent
 from app.agent.state import ComplianceAgentState
 from app.llm.base import ChatModel
 from app.models.schemas import AgentResponse, ToolCall
+from app.observability.logging import (
+    generate_request_id,
+    log_event,
+    measure_time,
+)
 
 SYSTEM_PROMPT = """You are a laboratory compliance assistant.
 
@@ -107,7 +113,35 @@ class ComplianceAgent(Agent):
             if tool is None:
                 raise ValueError(f"Unknown tool requested: {tool_name}")
 
-            result = tool.invoke(tool_args)
+            log_event(
+                "tool.started",
+                tool=tool_name,
+                arguments=tool_args,
+            )
+
+            tool_start = time.perf_counter()
+
+            try:
+                result = tool.invoke(tool_args)
+            except Exception as exc:
+                duration_ms = (time.perf_counter() - tool_start) * 1000
+
+                log_event(
+                    "tool.failed",
+                    tool=tool_name,
+                    duration_ms=round(duration_ms, 2),
+                    error_type=type(exc).__name__,
+                    error=str(exc),
+                )
+                raise
+
+            duration_ms = (time.perf_counter() - tool_start) * 1000
+
+            log_event(
+                "tool.completed",
+                tool=tool_name,
+                duration_ms=round(duration_ms, 2),
+            )
 
             tool_messages.append(
                 ToolMessage(
@@ -234,40 +268,78 @@ class ComplianceAgent(Agent):
 
         return "LOW"
 
-    def run(self, query: str) -> AgentResponse:
-        initial_state: ComplianceAgentState = {
-            "messages": [
-                HumanMessage(content=query),
-            ],
-            "sources": [],
-            "tool_calls": [],
-            "audit_trace": [],
-            "confidence": "MEDIUM",
-        }
+    def run(
+        self,
+        query: str,
+        request_id: str | None = None,
+    ) -> AgentResponse:
+        request_id = request_id or generate_request_id()
 
-        result = self.graph.invoke(initial_state)
-
-        final_message = result["messages"][-1]
-        sources = result.get("sources", [])
-        tool_calls = result.get("tool_calls", [])
-        audit_trace = result.get("audit_trace", [])
-
-        confidence = self._calculate_confidence(
-            sources=sources,
-            tool_calls=tool_calls,
+        log_event(
+            "agent.run.started",
+            request_id=request_id,
+            agent="compliance",
+            query=query,
         )
 
-        return AgentResponse(
-            answer=final_message.content,
-            sources=sources,
-            tool_calls=[
-                ToolCall(
-                    tool_name=call["tool_name"],
-                    arguments=call["arguments"],
-                    result=call["result"],
-                )
-                for call in tool_calls
-            ],
-            confidence=confidence,
-            audit_trace=audit_trace,
-        )
+        try:
+            with measure_time(
+                "agent.graph",
+                request_id=request_id,
+                agent="compliance",
+            ):
+                initial_state: ComplianceAgentState = {
+                    "messages": [
+                        HumanMessage(content=query),
+                    ],
+                    "sources": [],
+                    "tool_calls": [],
+                    "audit_trace": [],
+                    "confidence": "MEDIUM",
+                }
+
+                result = self.graph.invoke(initial_state)
+
+            final_message = result["messages"][-1]
+            sources = result.get("sources", [])
+            tool_calls = result.get("tool_calls", [])
+            audit_trace = result.get("audit_trace", [])
+
+            confidence = self._calculate_confidence(
+                sources=sources,
+                tool_calls=tool_calls,
+            )
+
+            log_event(
+                "agent.run.completed",
+                request_id=request_id,
+                agent="compliance",
+                confidence=confidence,
+                tool_count=len(tool_calls),
+                source_count=len(sources),
+            )
+
+            return AgentResponse(
+                answer=final_message.content,
+                sources=sources,
+                tool_calls=[
+                    ToolCall(
+                        tool_name=call["tool_name"],
+                        arguments=call["arguments"],
+                        result=call["result"],
+                    )
+                    for call in tool_calls
+                ],
+                confidence=confidence,
+                audit_trace=audit_trace,
+            )
+
+        except Exception as exc:
+            log_event(
+                "agent.run.failed",
+                request_id=request_id,
+                agent="compliance",
+                error_type=type(exc).__name__,
+                error=str(exc),
+            )
+            raise
