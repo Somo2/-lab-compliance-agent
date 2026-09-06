@@ -32,6 +32,51 @@ class MockChatModel(ChatModel):
         user_query = self._get_user_query(messages).lower()
         tool_names = self._get_tool_names(messages)
 
+        if "conductivity" in user_query and "search_sops" in tool_names:
+            return AIMessage(
+                content=(
+                    "According to SOP-201 §4.2, the acceptable conductivity "
+                    "range is 1200–1800 µS/cm."
+                )
+            )
+
+        if "sop-305" in user_query and "peak area" in user_query:
+            if "search_sops" in tool_names:
+                return AIMessage(
+                    content=(
+                        "According to SOP-305 §4.1, the maximum acceptable "
+                        "peak area RSD is 2%."
+                    )
+                )
+
+        if "temperature" in user_query and "search_sops" in tool_names:
+            if "validate_parameter" not in tool_names:
+                return AIMessage(
+                    content="",
+                    tool_calls=[
+                        {
+                            "name": "validate_parameter",
+                            "args": {
+                                "parameter": "Temperature",
+                                "value": 30.0,
+                                "lower_bound": 23.0,
+                                "upper_bound": 27.0,
+                            },
+                            "id": "mock_validate_temperature",
+                            "type": "tool_call",
+                        }
+                    ],
+                )
+
+            return AIMessage(
+                content=(
+                    "The buffer temperature of 30°C is NON-COMPLIANT. "
+                    "According to SOP-201 §4.2, the acceptable temperature "
+                    "range is 23.0–27.0°C. The reading is above the upper "
+                    "limit of 27.0°C."
+                )
+            )
+
         if "validate_parameter" in tool_names:
             if "7.52" in user_query:
                 return AIMessage(
@@ -103,6 +148,54 @@ class MockChatModel(ChatModel):
                             "top_k": 3,
                         },
                         "id": "mock_search_1",
+                        "type": "tool_call",
+                    }
+                ],
+            )
+
+        if "sop-201" in user_query and "conductivity" in user_query:
+            return AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "search_sops",
+                        "args": {
+                            "query": "SOP-201 acceptable conductivity range",
+                            "top_k": 3,
+                        },
+                        "id": "mock_search_conductivity",
+                        "type": "tool_call",
+                    }
+                ],
+            )
+
+        if "sop-201" in user_query and "temperature" in user_query:
+            return AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "search_sops",
+                        "args": {
+                            "query": "SOP-201 acceptable temperature range",
+                            "top_k": 3,
+                        },
+                        "id": "mock_search_temperature",
+                        "type": "tool_call",
+                    }
+                ],
+            )
+
+        if "sop-305" in user_query and "peak area" in user_query:
+            return AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "search_sops",
+                        "args": {
+                            "query": "SOP-305 maximum peak area RSD",
+                            "top_k": 3,
+                        },
+                        "id": "mock_search_sop305_peak_area",
                         "type": "tool_call",
                     }
                 ],

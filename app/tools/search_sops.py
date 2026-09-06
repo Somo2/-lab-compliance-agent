@@ -24,9 +24,15 @@ class SearchSOPsTool:
 
     def run(self, query: str, top_k: int = 5) -> list[dict[str, Any]]:
         """Return relevant SOP chunks as serialization-friendly dictionaries."""
-        results = self.retriever.search(query=query, top_k=top_k)
-
         sop_match = re.search(r"SOP-\d+", query, re.IGNORECASE)
+        retrieval_top_k = top_k
+        if sop_match:
+            # Retrieve a broader candidate set so explicit SOP filtering can
+            # still find the requested document when it ranks below top_k.
+            retrieval_top_k = max(top_k, 10)
+
+        results = self.retriever.search(query=query, top_k=retrieval_top_k)
+
         if sop_match:
             requested_sop = sop_match.group(0).upper()
             results = [
@@ -43,7 +49,7 @@ class SearchSOPsTool:
                 "score": round(result.score, 4),
                 "metadata": result.chunk.metadata,
             }
-            for result in results
+            for result in results[:top_k]
         ]
 
 
