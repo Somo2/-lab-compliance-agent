@@ -1,6 +1,6 @@
 # Lab Compliance Agent
 
-An Agentic AI system for querying laboratory SOPs, validating experimental parameters against compliance rules, and producing structured, audit-ready responses.
+A production-oriented Agentic AI prototype for laboratory SOP retrieval, experimental parameter validation, and audit-ready compliance responses.
 
 ## 1. Problem Statement
 
@@ -9,9 +9,12 @@ The system acts as a laboratory compliance assistant that can:
 - Answer questions using laboratory Standard Operating Procedures (SOPs)
 - Retrieve relevant SOP sections using hybrid semantic and lexical search
 - Validate numeric experimental readings against SOP-defined limits
+- Support specialized compliance and SOP assistant agents
 - Provide traceable sources for every answer
 - Record tool usage and audit events
 - Return structured responses with confidence information
+- Normalize SOP identifiers in API requests and queries
+- Fall back from OpenAI to MockLLM when the primary provider fails
 
 The implementation is intentionally scoped to a small SOP corpus while keeping the architecture extensible for additional agents, retrieval strategies, and LLM providers.
 
@@ -23,34 +26,38 @@ The implementation is intentionally scoped to a small SOP corpus while keeping t
                          User
                            |
                            v
-                    REST API /query
+                        REST API
                            |
-                           v
-                  Agent Orchestrator
+            +--------------+--------------+
+            |              |              |
+         /query         /agents         /sops
+            |              |              |
+            +--------------+--------------+
                            |
-                           v
-                    Compliance Agent
-                       (LangGraph)
-                           |
-              +------------+------------+
-              |                         |
-              v                         v
-       search_sops              validate_parameter
-              |                         |
-              v                         v
-      Hybrid Retriever          Deterministic Python
-         /        \                  Validation
-        /          \
-       v            v
-  Vector Search    BM25 Search
-     Chroma        Lexical
-        \            /
-         \          /
-          v        v
-       RRF Fusion
-            |
-            v
-       Ranked SOP Chunks
+                   Agent Orchestrator
+                    /              \
+                   v                v
+          ComplianceAgent       SOPAssistantAgent
+                |                      |
+        +-------+-------+              |
+        |               |              |
+        v               v              v
+  search_sops   validate_parameter  search_sops
+        |               |              |
+        +-------+-------+--------------+
+                        |
+                  Hybrid Retriever
+                  /              \
+                 v                v
+          Chroma Vector        BM25
+             Search          Lexical Search
+                 \                /
+                  \              /
+                   v            v
+                RRF Rank Fusion
+                       |
+                       v
+                  SOP Chunks
 ```
 
 ### LLM abstraction
@@ -81,14 +88,17 @@ lab-compliance-agent/
 │   ├── agent/
 │   │   ├── base.py
 │   │   ├── compliance_agent.py
+│   │   ├── sop_assistant_agent.py
 │   │   ├── orchestrator.py
 │   │   └── state.py
 │   │
 │   ├── api/
-│   │   └── schemas.py
+│   │   ├── schemas.py
+│   │   └── sops.py
 │   │
 │   ├── llm/
 │   │   ├── base.py
+│   │   ├── fallback_model.py
 │   │   ├── factory.py
 │   │   ├── mock_model.py
 │   │   └── openai_model.py
@@ -106,6 +116,10 @@ lab-compliance-agent/
 │   │   ├── service.py
 │   │   └── vector_store.py
 │   │
+│   ├── utils/
+│   │   ├── __init__.py
+│   │   └── normalization.py
+│   │
 │   └── tools/
 │       ├── search_sops.py
 │       └── validate_parameter.py
@@ -118,6 +132,8 @@ lab-compliance-agent/
 │
 ├── tests/
 │   ├── test_compliance_agent.py
+│   ├── test_api.py
+│   ├── test_fallback.py
 │   ├── test_llm.py
 │   ├── test_retrieval.py
 │   └── test_tools.py
@@ -262,9 +278,24 @@ This prevents semantically similar content from unrelated SOPs from being return
 
 ---
 
-## 5. Agent Workflow
+## 5. Agent Design
 
-The compliance agent uses a LangGraph state machine.
+The platform contains two specialized LangGraph agents that share the
+orchestrator and hybrid retrieval infrastructure.
+
+### ComplianceAgent
+
+The compliance agent has access to both `search_sops` and
+`validate_parameter`. It retrieves authoritative SOP evidence and delegates
+numeric comparisons to deterministic Python validation.
+
+### SOPAssistantAgent
+
+The SOP assistant answers factual and procedural questions using
+`search_sops`. It intentionally does not have access to
+`validate_parameter`.
+
+Both agents use the same state-machine workflow:
 
 ```
 START
@@ -314,6 +345,14 @@ NON-COMPLIANT
         v
 
 Structured audit-ready response
+```
+
+The shared `AgentOrchestrator` registers agents under stable names and routes
+requests without coupling clients to implementation details:
+
+```python
+orchestrator.register_agent("compliance", compliance_agent)
+orchestrator.register_agent("sop_assistant", sop_assistant)
 ```
 
 ---
@@ -431,6 +470,11 @@ The OpenAI provider allows the application to use a real tool-calling LLM.
 
 The Mock provider provides deterministic behavior for tests and evaluation, avoiding dependence on external API availability, network conditions, or API quota.
 
+When OpenAI is selected, `FallbackChatModel` uses OpenAI as the primary model
+and switches permanently to MockLLM after an invocation failure. This avoids
+repeated calls to an unavailable provider while preserving local
+availability.
+
 Configure the provider through `.env`:
 
 ```
@@ -459,13 +503,16 @@ The project includes a repeatable evaluation script:
 python evaluate.py
 ```
 
-The evaluation currently covers:
+The evaluation currently covers eight cases:
 
 1. Factual SOP retrieval
 2. Non-compliant parameter validation
 3. Upper-boundary validation
 4. Lower-boundary validation
 5. Unknown SOP / insufficient evidence handling
+6. Conductivity retrieval
+7. Non-compliant temperature validation
+8. HPLC system suitability retrieval across SOP-305
 
 Expected output:
 
@@ -476,7 +523,7 @@ Expected output:
 [PASS] ...
 [PASS] ...
 
-Evaluation result: 5/5 passed
+Evaluation result: 8/8 passed
 ```
 
 The evaluation uses deterministic behavior so that results remain repeatable.
@@ -502,6 +549,11 @@ The test suite covers:
 - Retrieval
 - Tool behavior
 - LLM abstraction
+- API endpoints
+- Agent routing
+- Fallback behavior
+
+The suite currently contains 25 tests.
 
 Warnings from third-party dependencies may appear during testing but do not affect the current test results.
 
@@ -563,6 +615,20 @@ GET /health
 ```
 POST /query
 ```
+
+Additional endpoints include:
+
+```text
+GET  /health
+GET  /agents
+GET  /sops
+GET  /sops/{sop_id}
+POST /agents/compliance/query
+POST /agents/sop-assistant/query
+```
+
+SOP identifiers are normalized across API routes and query text. For example,
+`201`, `SOP 201`, and `sop-201` are treated as `SOP-201`.
 
 Example request:
 
@@ -707,9 +773,13 @@ Implemented:
 - Audit trace
 - Confidence scoring
 - REST `/query` endpoint
+- Agent-specific REST query endpoints
+- `/agents` and `/sops` APIs
+- SOP identifier and query normalization
 - Health endpoint
-- Automated evaluation
-- Automated tests
+- OpenAI provider with automatic MockLLM fallback
+- Eight-case deterministic evaluation
+- 25 automated tests
 
 Future extensions can include:
 

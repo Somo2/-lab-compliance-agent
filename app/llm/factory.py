@@ -1,6 +1,7 @@
 import os
 
 from app.llm.base import ChatModel
+from app.llm.fallback_model import FallbackChatModel
 from app.llm.mock_model import MockChatModel
 from app.llm.openai_model import OpenAIChatModel
 
@@ -10,7 +11,10 @@ def create_chat_model() -> ChatModel:
     model = os.getenv("LLM_MODEL", "gpt-5.6-luna")
 
     if provider == "openai":
-        return OpenAIChatModel(model=model)
+        return FallbackChatModel(
+            primary=OpenAIChatModel(model=model),
+            fallback=MockChatModel(),
+        )
 
     if provider == "mock":
         return MockChatModel()

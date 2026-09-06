@@ -12,6 +12,10 @@ class MockChatModel(ChatModel):
         self.responses = responses or []
         self.call_count = 0
 
+    def bind_tools(self, tools: list[Any]) -> "MockChatModel":
+        """Return a tool-aware mock model compatible with LangChain."""
+        return self
+
     def invoke(
         self,
         messages: list[dict[str, Any]],

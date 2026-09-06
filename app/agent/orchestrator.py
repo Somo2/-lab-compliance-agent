@@ -14,6 +14,10 @@ class AgentOrchestrator:
         """Register an agent under a stable routing name."""
         self._agents[name] = agent
 
+    def list_agents(self) -> list[str]:
+        """Return the names of all registered agents."""
+        return sorted(self._agents.keys())
+
     def get_agent(self, name: str) -> Agent:
         """Return a registered agent or raise a clear domain error."""
         try:

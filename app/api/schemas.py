@@ -8,6 +8,10 @@ class QueryRequest(BaseModel):
     agent: str = "compliance"
 
 
+class AgentQueryRequest(BaseModel):
+    query: str
+
+
 class QueryResponse(BaseModel):
     answer: str
     sources: list[dict[str, Any]]

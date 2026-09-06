@@ -1,4 +1,5 @@
 from app.agent.compliance_agent import ComplianceAgent
+from app.agent.sop_assistant_agent import SOPAssistantAgent
 from app.agent.orchestrator import AgentOrchestrator
 from app.llm.factory import create_chat_model
 from app.retrieval.bm25_retriever import BM25Retriever
@@ -35,10 +36,19 @@ def create_orchestrator() -> AgentOrchestrator:
         ],
     )
 
+    sop_assistant = SOPAssistantAgent(
+        model=model,
+        tools=[search_sops],
+    )
+
     orchestrator = AgentOrchestrator()
     orchestrator.register_agent(
         "compliance",
         compliance_agent,
+    )
+    orchestrator.register_agent(
+        "sop_assistant",
+        sop_assistant,
     )
 
     return orchestrator
